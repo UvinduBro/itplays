@@ -1,0 +1,7 @@
+{
+  "name": "scribble-synth",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Draw scribbles (with your hand or mouse) and hear them: y = pitch, x = time.",
+  "scripts": { "start": "python3 -m http.server 8080" }
+}

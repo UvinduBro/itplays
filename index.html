@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Scribble Synth</title>
+  <meta name="description" content="Draw in the air or on screen. Your scribbles become music: y axis = pitch, x axis = time.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="stage"></canvas>
+
+  <header class="bar top">
+    <div class="brand">scribble<span>.synth</span></div>
+    <nav id="genres" class="chips" aria-label="Genre"></nav>
+  </header>
+
+  <div id="hint" class="hint">y axis = pitch &nbsp;·&nbsp; x axis = time</div>
+
+  <div class="pip" id="pip" hidden>
+    <video id="cam" playsinline muted></video>
+    <canvas id="pipOverlay"></canvas>
+    <div id="pipStatus" class="pip-status">loading hand model…</div>
+  </div>
+
+  <footer class="bar bottom">
+    <button id="play" class="btn" title="Play / pause (space)">Pause</button>
+    <button id="cam-btn" class="btn accent" title="Draw with your hand via webcam">Use hand</button>
+    <label class="toggle" title="Snap notes to the genre's scale">
+      <input type="checkbox" id="quant" checked><span>Snap to scale</span>
+    </label>
+    <label class="slider" title="Tempo">
+      <span>BPM</span><input type="range" id="bpm" min="50" max="170" value="90"><output id="bpmOut">90</output>
+    </label>
+    <button id="undo" class="btn" title="Undo (z)">Undo</button>
+    <button id="clear" class="btn" title="Clear (c)">Clear</button>
+  </footer>
+
+  <div id="start" class="overlay">
+    <div class="card">
+      <h1>scribble<span>.synth</span></h1>
+      <p>Draw a squiggle. It becomes a melody.<br>
+         <b>Up/down = pitch</b>, <b>left/right = time</b>.</p>
+      <ul>
+        <li><b>Mouse / touch:</b> click and drag on the canvas.</li>
+        <li><b>Hand tracking:</b> press <i>Use hand</i>, then <b>pinch</b> thumb + index finger to draw in the air. Release to lift the pen.</li>
+      </ul>
+      <button id="go" class="btn accent big">Start</button>
+    </div>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

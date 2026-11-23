@@ -25,6 +25,8 @@ export class Engine {
     const comp = ctx.createDynamicsCompressor();
     comp.threshold.value = -14; comp.ratio.value = 4;
     this.master.connect(comp).connect(ctx.destination);
+    this.recDest = ctx.createMediaStreamDestination();   // tap for recording
+    comp.connect(this.recDest);
 
     // FX sends
     this.leadBus = ctx.createGain();
@@ -148,11 +150,13 @@ export class Engine {
   }
 
   // ---------- lead voices (one per stroke + one for the live pen) ----------
-  setVoice(id, midi) {
+  setVoice(id, midi, vol = 1) {
     if (!this.ctx) return;
     if (midi == null) { this._stopVoice(id); return; }
-    const v = this.voices.get(id) || this._startVoice(id, midi);
-    const t = this.ctx.currentTime, f = mtof(midi);
+    let v = this.voices.get(id), fresh = false;
+    if (!v) { v = this._startVoice(id, midi); fresh = true; }
+    const t = this.ctx.currentTime, f = mtof(midi), gn = this.genre;
+    v.a.gain.setTargetAtTime(gn.leadGain * vol, t, fresh ? Math.max(0.004, gn.attack / 3) : 0.04);
     v.o1.frequency.setTargetAtTime(f, t, this.quantize ? 0.012 : 0.03);
     v.o2.frequency.setTargetAtTime(f, t, this.quantize ? 0.012 : 0.03);
   }
@@ -167,7 +171,6 @@ export class Engine {
     const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = g.cutoff; f.Q.value = g.q;
     const a = ctx.createGain(); a.gain.value = 0;
     o1.connect(f); o2.connect(f); f.connect(a).connect(this.leadBus);
-    a.gain.setTargetAtTime(g.leadGain, t, Math.max(0.004, g.attack / 3));
     o1.start(); o2.start();
     const v = { o1, o2, a, f };
     this.voices.set(id, v);
@@ -195,7 +198,7 @@ export class Engine {
     if (g.kick[s] === 'x') this._kick(t);
     if (g.snare[s] === 'x') this._snare(t);
     if (g.hat[s] === 'x') this._hat(t, s % 4 === 2 && g.kit !== 'chip');
-    if (g.bass[s] === 'x') this._bass(t, root + (s % 8 === 6 && g.kit === 'chip' ? 12 : 0), dur * (g.kit === 'chip' ? 0.9 : 1.6));
+    if (g.bass[s] === 'x') this._bass(t, root + (s % 8 === 6 && g.kit === 'chip' ? 12 : 0), dur * (g.kit === 'chip' ? 0.9 : (g.bassLen || 1.6)));
     if (s === 0 && g.padGain > 0) this._pad(t, g.lo - 12 + g.prog[bar], dur * 16);
   }
 

@@ -57,8 +57,41 @@ export const GENRES = {
     kit: 'hard', kick: 'x...x...x...x...', snare: '....x.......x...', hat: 'x.x.x.x.x.x.x.x.',
     hue: 290,
   },
+  jazz: {
+    name: 'Jazz', bpm: 112, swing: 0.3,
+    lo: 55,
+    scale: [0, 2, 3, 5, 7, 9, 10],   // dorian
+    wave: 'sine', detune: 4, cutoff: 2600, q: 0.6, attack: 0.012, release: 0.22, leadGain: 0.30, vibrato: 5,
+    reverb: 0.32, delay: 0.14,
+    prog: [0, 5, -2, 3], chord: [0, 3, 7, 10], padWave: 'triangle', padGain: 0.05,
+    bassWave: 'triangle', bassGain: 0.36, bassLen: 3.2, bass: 'x...x...x...x...',
+    kit: 'soft', kick: 'x.......x.......', snare: '....x.......x...', hat: 'x..x..x.x..x..x.',
+    hue: 40,
+  },
+  trap: {
+    name: 'Trap', bpm: 140, swing: 0,
+    lo: 48,
+    scale: [0, 3, 5, 7, 10],
+    wave: 'triangle', detune: 5, cutoff: 3200, q: 1.5, attack: 0.008, release: 0.2, leadGain: 0.28, vibrato: 6,
+    reverb: 0.3, delay: 0.3,
+    prog: [0, 0, -4, -2], chord: [0, 3, 7], padWave: 'sine', padGain: 0.035,
+    bassWave: 'sine', bassGain: 0.55, bassLen: 6, bass: 'x.....x..x......',
+    kit: 'hard', kick: 'x.....x..x....x.', snare: '........x.......', hat: 'x.x.xxx.x.x.xxxx',
+    hue: 18,
+  },
+  house: {
+    name: 'House', bpm: 124, swing: 0.04,
+    lo: 57,
+    scale: [0, 2, 4, 5, 7, 9, 10],   // mixolydian
+    wave: 'sawtooth', detune: 12, cutoff: 2200, q: 3, attack: 0.01, release: 0.12, leadGain: 0.15, vibrato: 0,
+    reverb: 0.25, delay: 0.3,
+    prog: [0, 5, 7, 5], chord: [0, 4, 7, 10], padWave: 'sawtooth', padGain: 0.03,
+    bassWave: 'sawtooth', bassGain: 0.2, bassLen: 1.4, bass: '..x...x...x...x.',
+    kit: 'hard', kick: 'x...x...x...x...', snare: '....x.......x...', hat: '..x...x...x...x.',
+    hue: 100,
+  },
 };
 
-export const GENRE_ORDER = ['lofi', 'techno', 'ambient', 'chip', 'synthwave'];
+export const GENRE_ORDER = ['lofi', 'jazz', 'house', 'techno', 'trap', 'ambient', 'chip', 'synthwave'];
 export const RANGE = 36;   // semitones covered by the canvas height (3 octaves)
 export const BARS = 4;     // loop length

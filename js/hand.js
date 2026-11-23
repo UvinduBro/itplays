@@ -48,7 +48,7 @@ export async function startHand({ video, overlay, onStatus, onPen }) {
     if (!lm) {
       if (hadHand) onStatus('show your hand');
       hadHand = false; pinching = false;
-      onPen({ present: false, down: false });
+      onPen({ present: false, down: false, erase: false });
       return;
     }
     hadHand = true;
@@ -58,8 +58,12 @@ export async function startHand({ video, overlay, onStatus, onPen }) {
     const ratio = dist(lm[4], lm[8]) / size;
     pinching = pinching ? ratio < 0.42 : ratio < 0.28;
 
+    // fist = all four fingertips curled in closer to the wrist than their middle joints -> eraser
+    const curled = [[8, 6], [12, 10], [16, 14], [20, 18]].filter(([t, j]) => dist(lm[t], lm[0]) < dist(lm[j], lm[0]) * 1.02).length;
+    const fist = !pinching && curled === 4;
+
     // pen position: midpoint of thumb + index tips, mapped with a margin so edges are reachable
-    const rx = (lm[4].x + lm[8].x) / 2, ry = (lm[4].y + lm[8].y) / 2;
+    const rx = fist ? lm[9].x : (lm[4].x + lm[8].x) / 2, ry = fist ? lm[9].y : (lm[4].y + lm[8].y) / 2;
     const m = 0.12, tx = Math.min(1, Math.max(0, (rx - m) / (1 - 2 * m))), ty = Math.min(1, Math.max(0, (ry - m) / (1 - 2 * m)));
     const k = pinching ? 0.55 : 0.4;                 // light smoothing
     sx += (tx - sx) * k; sy += (ty - sy) * k;
@@ -68,12 +72,12 @@ export async function startHand({ video, overlay, onStatus, onPen }) {
     const W = overlay.width, H = overlay.height;
     octx.lineWidth = 2; octx.strokeStyle = 'rgba(124,244,200,.8)';
     for (const [a, b] of BONES) { octx.beginPath(); octx.moveTo(lm[a].x * W, lm[a].y * H); octx.lineTo(lm[b].x * W, lm[b].y * H); octx.stroke(); }
-    octx.fillStyle = pinching ? '#ff5c8a' : '#fff';
+    octx.fillStyle = pinching ? '#ff5c8a' : fist ? '#ffb020' : '#fff';
     octx.beginPath(); octx.arc(rx * W, ry * H, 7, 0, 6.3); octx.fill();
 
-    onStatus(pinching ? 'drawing' : 'pinch to draw');
+    onStatus(pinching ? 'drawing' : fist ? 'erasing (fist)' : 'pinch to draw · fist to erase');
     // x is mirrored so moving your hand right moves the pen right
-    onPen({ present: true, down: pinching, x: 1 - sx, y: sy });
+    onPen({ present: true, down: pinching, erase: fist, x: 1 - sx, y: sy });
   };
   loop();
 

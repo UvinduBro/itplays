@@ -32,11 +32,39 @@
     <label class="slider" title="Tempo">
       <span>BPM</span><input type="range" id="bpm" min="50" max="170" value="90"><output id="bpmOut">90</output>
     </label>
+    <button id="track-btn" class="btn" title="Play along with a song: analyse its tempo and key">Track</button>
+    <button id="test" class="btn" title="Play a test chime">Test sound</button>
     <button id="rec" class="btn" title="Record one loop and download it">Record loop</button>
     <button id="png" class="btn" title="Save the drawing as an image">PNG</button>
     <button id="undo" class="btn" title="Undo (z)">Undo</button>
     <button id="clear" class="btn" title="Clear (c)">Clear</button>
   </footer>
+
+
+  <div id="soundBanner" class="banner" hidden>Sound is off. <b>Tap here</b> to turn it on.<small> (On iPhone, also check the silent switch and volume.)</small></div>
+
+  <div id="trackPanel" class="overlay gone">
+    <div class="card panel">
+      <h2>Play along with a song</h2>
+      <p class="muted">Drop in a song. I'll find its <b>tempo</b>, <b>key</b> and <b>feel</b>, play it, and snap your drawing to the same beat and notes.</p>
+      <label id="drop" class="drop">
+        <input type="file" id="file" accept="audio/*" hidden>
+        <b>Choose an audio file</b><br><span>mp3, wav, m4a, ogg · or drop it here</span>
+      </label>
+      <div class="row">
+        <input type="url" id="url" placeholder="…or a direct link to an audio file (https://…/song.mp3)">
+        <button id="load" class="btn">Load</button>
+      </div>
+      <p class="note">SoundCloud, YouTube, Spotify and similar links can't be analysed: those sites don't let other websites read their audio. Use a file you own or have permission to use (e.g. a download the artist allows).</p>
+      <div id="tstatus" class="tstatus" hidden></div>
+      <div id="tresult" class="tresult" hidden></div>
+      <label class="slider wide"><span>Song volume</span><input type="range" id="tvol" min="0" max="1" step="0.01" value="0.9"></label>
+      <div class="row end">
+        <button id="tremove" class="btn" hidden>Remove song</button>
+        <button id="tclose" class="btn accent">Done</button>
+      </div>
+    </div>
+  </div>
 
   <div id="start" class="overlay">
     <div class="card">

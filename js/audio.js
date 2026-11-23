@@ -27,6 +27,12 @@ export class Engine {
     this.master.connect(comp).connect(ctx.destination);
     this.recDest = ctx.createMediaStreamDestination();   // tap for recording
     comp.connect(this.recDest);
+    this.analyser = ctx.createAnalyser(); this.analyser.fftSize = 1024;   // output level meter
+    comp.connect(this.analyser);
+    this._lvl = new Float32Array(1024);
+    this.trackBus = ctx.createGain(); this.trackBus.gain.value = 0.9;     // a loaded song plays here
+    this.trackBus.connect(this.master);
+    ctx.onstatechange = () => this.onState && this.onState(ctx.state);
 
     // FX sends
     this.leadBus = ctx.createGain();
@@ -93,9 +99,47 @@ export class Engine {
   }
 
   // ---------- transport ----------
+  /** output level 0..1 (peak of the last ~20 ms) */
+  level() {
+    if (!this.ctx) return 0;
+    this.analyser.getFloatTimeDomainData(this._lvl);
+    let m = 0; for (const v of this._lvl) { const a = Math.abs(v); if (a > m) m = a; }
+    return m;
+  }
+
+  /** short confirmation arpeggio so you can hear that audio works */
+  blip() {
+    if (!this.ctx) return;
+    const ctx = this.ctx, t0 = ctx.currentTime + 0.02;
+    [0, 4, 7, 12].forEach((iv, i) => {
+      const o = ctx.createOscillator(), a = ctx.createGain();
+      o.type = 'triangle'; o.frequency.value = mtof(72 + iv);
+      this._env(a, t0 + i * 0.09, 0.22, 0.3); o.connect(a).connect(this.master); o.start(t0 + i * 0.09); o.stop(t0 + i * 0.09 + 0.4);
+    });
+  }
+
+  // ---------- a loaded song ----------
+  setTrack(buffer, offset) {
+    this.stopTrack(); this.track = buffer ? { buffer, offset } : null; this.trackPending = !!buffer;
+    if (buffer && this.playing) {          // restart the loop now so the song starts on beat 1 straight away
+      this.nextStep = 0; this.nextTime = this.ctx.currentTime + 0.08; this.stepLog.length = 0; this.lastPos = 0;
+    }
+  }
+  setTrackVolume(v) { if (this.ctx) this.trackBus.gain.setTargetAtTime(v, this.ctx.currentTime, 0.03); }
+  stopTrack() { if (this.trackSrc) { try { this.trackSrc.stop(); } catch {} this.trackSrc = null; } }
+  _startTrackAt(t) {
+    this.stopTrack();
+    const s = this.ctx.createBufferSource();
+    s.buffer = this.track.buffer; s.connect(this.trackBus);
+    s.start(t, this.track.offset);
+    this.trackSrc = s; this.trackPending = false;
+  }
+
   play() {
-    if (!this.ctx || this.playing) return;
+    if (!this.ctx) return;
     this.ctx.resume();
+    if (this.playing) return;
+    if (this.track) this.trackPending = true;
     this.playing = true;
     this.nextTime = this.ctx.currentTime + 0.05;
     this.nextStep = Math.floor(this.lastPos * STEPS) % STEPS;
@@ -106,6 +150,7 @@ export class Engine {
     this.playing = false;
     clearInterval(this.timer);
     this.stepLog.length = 0;
+    this.stopTrack();
     this.releaseAll();
   }
 
@@ -113,6 +158,7 @@ export class Engine {
     const ctx = this.ctx;
     while (this.nextTime < ctx.currentTime + 0.12) {
       const dur = 60 / this.bpm / 4;
+      if (this.nextStep === 0 && this.track && this.trackPending) this._startTrackAt(this.nextTime);   // song's bar line == loop start
       this.stepLog.push({ t: this.nextTime, idx: this.nextStep, dur });
       this._playStep(this.nextStep, this.nextTime + (this.nextStep % 2 ? this.genre.swing * dur : 0), dur);
       this.nextTime += dur;

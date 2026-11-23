@@ -19,6 +19,9 @@ npm start        # or: python3 -m http.server 8080
 - *Snap to scale* quantises pitch to the genre scale; turn off for theremin-style glides.
 - Keys: `space` play/pause, `z` undo, `c` clear.
 
+- **Track:** drop in an audio file (or a direct audio link). It finds the tempo, beat grid, key and rough timbre, plays the song, and locks your drawing to its BPM and scale. Streaming-site links (SoundCloud, YouTube, Spotify…) can't be analysed because those sites don't expose their audio to other websites.
+- **No sound?** The meter at the bottom right shows output level. If it moves but you hear nothing, check device volume / the iPhone silent switch; if a banner says sound is off, tap it. *Test sound* plays a chime.
+
 ## Deploy
 Static site, no build step. Vercel serves it as-is (see `vercel.json`).
 

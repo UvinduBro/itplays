@@ -1,6 +1,7 @@
 import { Engine } from './audio.js';
 import { GENRES, GENRE_ORDER, RANGE, BARS } from './genres.js';
 import { startHand } from './hand.js';
+import { analyse, profileFromAnalysis, NOTE_NAMES } from './track.js';
 
 const $ = id => document.getElementById(id);
 const canvas = $('stage'), g = canvas.getContext('2d');
@@ -29,6 +30,7 @@ for (const k of GENRE_ORDER) {
   chips.appendChild(b);
 }
 function setGenre(k) {
+  if (k !== 'track' && T.active) clearSong();
   state.genreKey = k;
   engine.setGenre(GENRES[k]);
   $('bpm').value = engine.bpm; $('bpmOut').textContent = engine.bpm;
@@ -155,10 +157,108 @@ addEventListener('keydown', e => {
   else if (e.key === 'c') $('clear').click();
 });
 
+// ---------- making sure the browser actually lets us make sound ----------
+let unlockEl = null;
+function silentWavUrl() {
+  const n = 800, b = new DataView(new ArrayBuffer(44 + n)), s = (o, t) => [...t].forEach((c, i) => b.setUint8(o + i, c.charCodeAt(0)));
+  s(0, 'RIFF'); b.setUint32(4, 36 + n, true); s(8, 'WAVEfmt '); b.setUint32(16, 16, true); b.setUint16(20, 1, true); b.setUint16(22, 1, true);
+  b.setUint32(24, 8000, true); b.setUint32(28, 8000, true); b.setUint16(32, 1, true); b.setUint16(34, 8, true); s(36, 'data'); b.setUint32(40, n, true);
+  for (let i = 0; i < n; i++) b.setUint8(44 + i, 128);
+  return URL.createObjectURL(new Blob([b.buffer], { type: 'audio/wav' }));
+}
+function unlockAudio() {
+  try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch {}
+  try {   // iOS: the ringer/silent switch mutes Web Audio unless a media element is playing
+    if (!unlockEl) { unlockEl = new Audio(silentWavUrl()); unlockEl.loop = true; unlockEl.setAttribute('playsinline', ''); }
+    unlockEl.play().catch(() => {});
+  } catch {}
+  if (engine.ctx && engine.ctx.state !== 'running') engine.ctx.resume().catch(() => {});
+}
+function syncBanner() { $('soundBanner').hidden = !engine.ctx || engine.ctx.state === 'running'; }
+$('soundBanner').onclick = () => { unlockAudio(); engine.blip(); setTimeout(syncBanner, 300); };
+for (const ev of ['pointerdown', 'keydown', 'touchend']) addEventListener(ev, () => { if (engine.ctx && engine.ctx.state !== 'running') { unlockAudio(); setTimeout(syncBanner, 300); } }, true);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { unlockAudio(); syncBanner(); } });
+$('test').onclick = () => { unlockAudio(); engine.blip(); setTimeout(syncBanner, 300); };
+
 $('go').onclick = () => {
-  engine.init(); setGenre(state.genreKey); if (saved && saved.bpm) { engine.setBpm(saved.bpm); $('bpm').value = saved.bpm; $('bpmOut').textContent = saved.bpm; }
+  unlockAudio();
+  engine.init(); engine.onState = syncBanner; engine.blip(); setGenre(state.genreKey); if (saved && saved.bpm) { engine.setBpm(saved.bpm); $('bpm').value = saved.bpm; $('bpmOut').textContent = saved.bpm; }
   engine.play();
   $('start').classList.add('gone');
+};
+
+// ---------- play along with a song ----------
+const T = { open: false, active: false };
+const tpanel = $('trackPanel');
+$('track-btn').onclick = () => { unlockAudio(); tpanel.classList.remove('gone'); };
+$('tclose').onclick = () => tpanel.classList.add('gone');
+tpanel.addEventListener('pointerdown', e => { if (e.target === tpanel) tpanel.classList.add('gone'); });
+$('tvol').oninput = e => engine.setTrackVolume(+e.target.value);
+const tstatus = (t, err = false) => { const el = $('tstatus'); el.hidden = !t; el.textContent = t || ''; el.classList.toggle('err', err); };
+
+const STREAMING = /(soundcloud\.com|snd\.sc|youtube\.com|youtu\.be|spotify\.com|music\.apple\.com|deezer\.com|tidal\.com|bandcamp\.com|audiomack\.com)$/i;
+const decode = ab => new Promise((res, rej) => engine.ctx.decodeAudioData(ab, res, rej));
+
+async function loadSong(arrayBuffer, title) {
+  try {
+    tstatus('decoding audio…');
+    const buf = await decode(arrayBuffer);
+    const a = await analyse(buf, tstatus);
+    const prof = profileFromAnalysis(a, title);
+    GENRES.track = prof;
+    if (!chips.querySelector('[data-k=track]')) {
+      const b = document.createElement('button'); b.className = 'chip'; b.dataset.k = 'track'; b.textContent = 'Song';
+      b.onclick = () => setGenre('track'); chips.prepend(b);
+    }
+    state.songTitle = title;
+    setGenre('track');
+    engine.setBpm(prof.bpm);
+    $('bpm').value = Math.round(prof.bpm); $('bpmOut').textContent = prof.bpm.toFixed(1); $('bpm').disabled = true;
+    engine.setTrack(buf, a.offset);
+    if (!engine.playing) { engine.play(); $('play').textContent = 'Pause'; }
+    T.active = true;
+    const r = $('tresult'); r.hidden = false;
+    r.innerHTML = `<div><b>${prof.bpm.toFixed(1)}</b><span>BPM</span></div><div><b>${prof.info.key}</b><span>key${a.keyConf < 0.45 ? ' (unsure)' : ''}</span></div><div><b>${prof.info.feel}</b><span>${prof.info.timbre} sound</span></div>`;
+    $('tremove').hidden = false;
+    tstatus('Playing. Your drawing is now locked to the song\'s tempo and notes. The loop restarts every 4 bars.');
+  } catch (err) {
+    console.error(err);
+    tstatus("Couldn't read that audio. Try an mp3, wav, m4a or ogg file.", true);
+  }
+}
+function clearSong() {
+  engine.setTrack(null); T.active = false; $('bpm').disabled = false;
+  const c = chips.querySelector('[data-k=track]'); if (c) c.remove();
+  $('tresult').hidden = true; $('tremove').hidden = true; tstatus('');
+}
+$('tremove').onclick = () => { clearSong(); setGenre('lofi'); };
+
+async function fromFile(file) {
+  if (!file) return;
+  if (!engine.ctx) engine.init();
+  tstatus('reading file…');
+  loadSong(await file.arrayBuffer(), file.name.replace(/\.[^.]+$/, ''));
+}
+$('file').onchange = e => fromFile(e.target.files[0]);
+const drop = $('drop');
+for (const ev of ['dragenter', 'dragover']) drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); });
+for (const ev of ['dragleave', 'drop']) drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); });
+drop.addEventListener('drop', e => fromFile(e.dataTransfer.files[0]));
+
+$('load').onclick = async () => {
+  const raw = $('url').value.trim(); if (!raw) return;
+  let u; try { u = new URL(raw); } catch { tstatus('That does not look like a link.', true); return; }
+  if (STREAMING.test(u.hostname)) {
+    tstatus(`${u.hostname.replace(/^www\./, '')} doesn't let other websites read its audio, so I can't analyse a link from there. Use an audio file you own or have permission to use, and drop it above.`, true);
+    return;
+  }
+  try {
+    tstatus('downloading…');
+    const res = await fetch(u.href); if (!res.ok) throw new Error('HTTP ' + res.status);
+    loadSong(await res.arrayBuffer(), decodeURIComponent(u.pathname.split('/').pop() || 'Song').replace(/\.[^.]+$/, ''));
+  } catch (err) {
+    tstatus("Couldn't fetch that link from the browser (the server probably blocks other sites). Download the file and drop it above instead.", true);
+  }
 };
 
 // ---------- sound from strokes ----------
@@ -287,11 +387,12 @@ function recOnWrap() {
   }
 }
 
-let prevPos = 0;
+let prevPos = 0, frameN = 0, meter = 0;
 function frame() {
   requestAnimationFrame(frame);
   const genre = GENRES[state.genreKey];
   const pos = engine.ctx ? engine.position() : 0;
+  if (engine.ctx && engine.ctx.state !== 'running' && (frameN++ % 60 === 0)) { engine.ctx.resume().catch(() => {}); syncBanner(); }
   if (pos < prevPos - 0.5) recOnWrap();
   prevPos = pos;
 
@@ -325,6 +426,16 @@ function frame() {
   g.fillStyle = grad; g.fillRect(px - 60, 0, 60, H);
   g.strokeStyle = 'rgba(255,255,255,.85)'; g.lineWidth = 2;
   g.beginPath(); g.moveTo(px, 0); g.lineTo(px, H); g.stroke();
+
+  // output meter (top right): if this moves but you hear nothing, the device/browser is muting audio
+  if (engine.ctx) {
+    meter = Math.max(engine.level(), meter * 0.9);
+    const mx = W - 24, mh = 70, my = H - 96;
+    g.fillStyle = 'rgba(255,255,255,.08)'; g.fillRect(mx, my - mh, 6, mh);
+    g.fillStyle = engine.ctx.state === 'running' ? (meter > 0.9 ? '#ff5c8a' : '#7cf4c8') : '#ffb020';
+    g.fillRect(mx, my - Math.min(1, meter * 1.4) * mh, 6, Math.min(1, meter * 1.4) * mh);
+    g.fillStyle = 'rgba(255,255,255,.4)'; g.font = '10px system-ui'; g.textBaseline = 'top'; g.fillText('out', mx - 2, my + 4);
+  }
 
   // pen cursor
   const p = state.pen;

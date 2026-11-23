@@ -20,6 +20,7 @@ npm start        # or: python3 -m http.server 8080
 - Keys: `space` play/pause, `z` undo, `c` clear.
 
 - **Track:** drop in an audio file (or a direct audio link). It finds the tempo, beat grid, key and rough timbre, plays the song, and locks your drawing to its BPM and scale. Streaming-site links (SoundCloud, YouTube, Spotify…) can't be analysed because those sites don't expose their audio to other websites.
+- **Listen to a browser tab (desktop Chrome/Edge):** play a song on YouTube/SoundCloud/etc. in another tab, press *Listen to a browser tab*, pick that tab and tick *Also share tab audio*. It listens ~20 s, finds tempo + key, and locks the loop to the song's bars. No API keys involved; audio is analysed in your browser and never stored or uploaded.
 - **No sound?** The meter at the bottom right shows output level. If it moves but you hear nothing, check device volume / the iPhone silent switch; if a banner says sound is off, tap it. *Test sound* plays a chime.
 
 ## Deploy

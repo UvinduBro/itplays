@@ -227,7 +227,7 @@ async function loadSong(arrayBuffer, title) {
   }
 }
 function clearSong() {
-  engine.setTrack(null); T.active = false; $('bpm').disabled = false;
+  stopCapture(); engine.setTrack(null); T.active = false; $('bpm').disabled = false;
   const c = chips.querySelector('[data-k=track]'); if (c) c.remove();
   $('tresult').hidden = true; $('tremove').hidden = true; tstatus('');
 }
@@ -249,7 +249,7 @@ $('load').onclick = async () => {
   const raw = $('url').value.trim(); if (!raw) return;
   let u; try { u = new URL(raw); } catch { tstatus('That does not look like a link.', true); return; }
   if (STREAMING.test(u.hostname)) {
-    tstatus(`${u.hostname.replace(/^www\./, '')} doesn't let other websites read its audio, so I can't analyse a link from there. Use an audio file you own or have permission to use, and drop it above.`, true);
+    tstatus(`${u.hostname.replace(/^www\./, '')} doesn't give other websites its audio (and no API key changes that). Play it in another tab and use "Listen to a browser tab" below.`, true);
     return;
   }
   try {
@@ -260,6 +260,84 @@ $('load').onclick = async () => {
     tstatus("Couldn't fetch that link from the browser (the server probably blocks other sites). Download the file and drop it above instead.", true);
   }
 };
+
+// ---------- listen to a browser tab (YouTube / SoundCloud / anything playing in another tab) ----------
+const CAP_SECONDS = 20;
+let cap = null;   // { stream, src, sp, chunks, sr, timer }
+const canCapture = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) && !/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+if (!canCapture) { $('capture').disabled = true; $('capnote').textContent = 'Tab listening needs desktop Chrome or Edge (it is not available on phones). On a phone, use a song file.'; }
+
+function stopCapture() {
+  if (!cap) return;
+  try { cap.sp.disconnect(); cap.src.disconnect(); } catch {}
+  cap.stream.getTracks().forEach(t => t.stop());
+  clearInterval(cap.timer); cap = null;
+  $('capstop').hidden = true; $('resync').hidden = true; $('capture').disabled = !canCapture;
+}
+$('capstop').onclick = () => { stopCapture(); tstatus('Stopped listening. The drawing keeps the last tempo and key.'); };
+
+async function startCapture(stream) {
+  if (!engine.ctx) engine.init();
+  const ctx = engine.ctx;
+  const src = ctx.createMediaStreamSource(new MediaStream(stream.getAudioTracks()));
+  const sp = ctx.createScriptProcessor(4096, 2, 1), mute = ctx.createGain(); mute.gain.value = 0;
+  const c = cap = { stream, src, sp, chunks: [], sr: ctx.sampleRate, firstT: null };
+  sp.onaudioprocess = e => {
+    const a = e.inputBuffer.getChannelData(0), b = e.inputBuffer.numberOfChannels > 1 ? e.inputBuffer.getChannelData(1) : a, m = new Float32Array(a.length);
+    for (let i = 0; i < a.length; i++) m[i] = (a[i] + b[i]) / 2;
+    c.chunks.push({ t: e.playbackTime - 2 * a.length / c.sr, data: m });   // ctx time the chunk started: ScriptProcessor output lags input by one buffer
+    while (c.chunks.length * 4096 / c.sr > CAP_SECONDS + 2) c.chunks.shift();
+  };
+  src.connect(sp); sp.connect(mute).connect(ctx.destination);
+  stream.getAudioTracks()[0].addEventListener('ended', () => { if (cap === c) { stopCapture(); tstatus('The tab share ended.'); } });
+  $('capture').disabled = true; $('capstop').hidden = false;
+  let left = CAP_SECONDS; tstatus(`Listening… ${left}s (keep the song playing)`);
+  await new Promise(res => { c.timer = setInterval(() => { left--; if (left <= 0) { clearInterval(c.timer); res(); } else tstatus(`Listening… ${left}s (keep the song playing)`); }, 1000); });
+  if (cap !== c) return;
+  await lockToCapture();
+  $('resync').hidden = false;
+}
+
+async function lockToCapture() {
+  const c = cap; if (!c || !c.chunks.length) return;
+  const chunks = c.chunks.slice(), len = chunks.reduce((s, k) => s + k.data.length, 0);
+  const buf = engine.ctx.createBuffer(1, len, c.sr), ch = buf.getChannelData(0);
+  let o = 0; for (const k of chunks) { ch.set(k.data, o); o += k.data.length; }
+  let peak = 0; for (let i = 0; i < len; i += 64) peak = Math.max(peak, Math.abs(ch[i]));
+  if (peak < 0.005) { tstatus("I heard silence. Make sure the song is playing and you ticked \"Also share tab audio\".", true); return; }
+  const a = await analyse(buf, tstatus);
+  const prof = profileFromAnalysis(a, 'Tab audio');
+  GENRES.track = prof;
+  if (!chips.querySelector('[data-k=track]')) {
+    const b = document.createElement('button'); b.className = 'chip'; b.dataset.k = 'track'; b.textContent = 'Song';
+    b.onclick = () => setGenre('track'); chips.prepend(b);
+  }
+  T.active = true; $('tremove').hidden = false;      // song mode (the song itself plays in its own tab)
+  setGenre('track'); engine.setBpm(prof.bpm);
+  $('bpm').value = Math.round(prof.bpm); $('bpmOut').textContent = prof.bpm.toFixed(1); $('bpm').disabled = true;
+  if (!engine.playing) { engine.play(); $('play').textContent = 'Pause'; }
+  // put the loop's first step on the song's next bar line
+  const bar = 4 * 60 / prof.bpm, t0 = chunks[0].t + a.offset, now = engine.ctx.currentTime + 0.4;
+  engine.alignLoopAt(t0 + Math.ceil((now - t0) / bar) * bar);
+  const r = $('tresult'); r.hidden = false;
+  r.innerHTML = `<div><b>${prof.bpm.toFixed(1)}</b><span>BPM</span></div><div><b>${prof.info.key}</b><span>key${a.keyConf < 0.45 ? ' (unsure)' : ''}</span></div><div><b>${prof.info.feel}</b><span>${prof.info.timbre} sound</span></div>`;
+  tstatus('Locked on. Draw: notes are in the song\'s key and the loop follows its bars. If it drifts, press Re-sync.');
+}
+$('resync').onclick = async () => { tstatus('re-syncing…'); await lockToCapture(); };
+
+$('capture').onclick = async () => {
+  unlockAudio();
+  let stream;
+  try { stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true }); }
+  catch { tstatus('No tab was shared.', true); return; }
+  if (!stream.getAudioTracks().length) {
+    stream.getTracks().forEach(t => t.stop());
+    tstatus('No audio came with the share. Pick the tab with the song and tick "Also share tab audio".', true); return;
+  }
+  stopCapture();
+  try { await startCapture(stream); } catch (err) { console.error(err); stopCapture(); tstatus("Couldn't listen to that tab.", true); }
+};
+window.__scribble.startCapture = startCapture;   // for tests
 
 // ---------- sound from strokes ----------
 /** y of the stroke where the playhead crosses it, or null if the playhead isn't over it. */

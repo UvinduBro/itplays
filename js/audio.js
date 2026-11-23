@@ -125,6 +125,11 @@ export class Engine {
       this.nextStep = 0; this.nextTime = this.ctx.currentTime + 0.08; this.stepLog.length = 0; this.lastPos = 0;
     }
   }
+  /** restart the loop so step 0 lands at ctx time `t` (used to lock onto a song playing elsewhere) */
+  alignLoopAt(t) {
+    if (!this.ctx) return;
+    this.nextStep = 0; this.nextTime = Math.max(t, this.ctx.currentTime + 0.05); this.stepLog.length = 0; this.lastPos = 0;
+  }
   setTrackVolume(v) { if (this.ctx) this.trackBus.gain.setTargetAtTime(v, this.ctx.currentTime, 0.03); }
   stopTrack() { if (this.trackSrc) { try { this.trackSrc.stop(); } catch {} this.trackSrc = null; } }
   _startTrackAt(t) {

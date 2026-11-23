@@ -24,6 +24,14 @@
   </div>
 
   <footer class="bar bottom">
+   <div class="group selects">
+    <label class="select" title="How long ink stays: after you draw it, or after the playhead has played it"><span>Ink</span>
+      <select id="ink"><option value="-1">vanishes 1 beat after drawn</option><option value="1">fades 1 beat after played</option><option value="4">fades 1 bar after played</option><option value="16">fades 4 bars after played</option><option value="hold">holds (loops)</option></select></label>
+    <label class="select" title="Instrument"><span>Sound</span><select id="inst"></select></label>
+    <label class="select" title="Add notes that fit the scale"><span>Harmony</span>
+      <select id="harm"><option value="off">off</option><option value="third">third</option><option value="chord">chord</option><option value="octave">octave down</option></select></label>
+   </div>
+   <div class="group">
     <button id="play" class="btn" title="Play / pause (space)">Pause</button>
     <button id="cam-btn" class="btn accent" title="Draw with your hand via webcam">Use hand</button>
     <label class="toggle" title="Snap notes to the genre's scale">
@@ -38,6 +46,7 @@
     <button id="png" class="btn" title="Save the drawing as an image">PNG</button>
     <button id="undo" class="btn" title="Undo (z)">Undo</button>
     <button id="clear" class="btn" title="Clear (c)">Clear</button>
+   </div>
   </footer>
 
 

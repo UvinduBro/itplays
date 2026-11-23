@@ -10,7 +10,7 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
 .bar{position:fixed;left:0;right:0;display:flex;align-items:center;gap:12px;padding:10px 14px;z-index:5;pointer-events:none}
 .bar > *{pointer-events:auto}
 .top{top:0;padding-top:max(10px,env(safe-area-inset-top))}
-.bottom{bottom:0;flex-wrap:wrap;justify-content:center;padding-bottom:max(12px,env(safe-area-inset-bottom))}
+.bottom{bottom:0;flex-direction:column;gap:8px;justify-content:center;padding-bottom:max(12px,env(safe-area-inset-bottom))}
 .brand{font-weight:700;letter-spacing:.02em;font-size:16px;white-space:nowrap}
 .brand span{color:var(--accent)}
 
@@ -82,3 +82,8 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
 [hidden]{display:none!important}
 .tabcap{border-top:1px solid var(--line);margin-top:14px;padding-top:12px}
 .tabcap ol{margin:8px 0;padding-left:18px}.tabcap li{margin:3px 0}
+.group{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;align-items:center}
+.select{display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line);padding:5px 10px;border-radius:10px;backdrop-filter:blur(8px);color:var(--dim)}
+.select select{background:transparent;color:var(--text);border:0;font:inherit;outline:0;cursor:pointer}
+.select option{background:#12151c;color:var(--text)}
+.banner{bottom:130px}

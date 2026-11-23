@@ -1,4 +1,4 @@
-import { Engine } from './audio.js';
+import { Engine, INSTRUMENTS } from './audio.js';
 import { GENRES, GENRE_ORDER, RANGE, BARS } from './genres.js';
 import { startHand } from './hand.js';
 import { analyse, profileFromAnalysis, NOTE_NAMES } from './track.js';
@@ -18,7 +18,21 @@ const state = {
   lastT: 0,
   rec: null,
   hand: null,
+  ink: -1,                // >0: beats a stroke lives after the playhead played it; <0: beats it lives after being drawn; Infinity = hold
 };
+
+// ---------- ink lifetime (measured in beats, so it follows the tempo) ----------
+const LOOP_BEATS = BARS * 4;
+let loops = 0, clock = 0;     // clock = beats since start (loops * 16 + position)
+/** when (in beats) the playhead will first reach this point: that is when it sounds, and when it starts to fade */
+function stamp(p) {
+  const ph = clock % LOOP_BEATS;
+  p.tc = clock + (((p.x * LOOP_BEATS - ph) % LOOP_BEATS) + LOOP_BEATS) % LOOP_BEATS;
+  p.born = clock;
+  return p;
+}
+const alive = p => state.ink === Infinity || (state.ink < 0 ? clock < p.born - state.ink : clock < p.tc + state.ink);
+const particles = [];
 window.__scribble = { state, engine };   // handy for debugging / tests
 
 // ---------- genre chips ----------
@@ -41,7 +55,7 @@ function setGenre(k) {
 // ---------- pen (shared by mouse, touch and hand) ----------
 function penDown(x, y) {
   state.lastT = performance.now();
-  state.current = { id: state.nextId++, pts: [{ x, y, w: 0.7 }] };
+  state.current = { id: state.nextId++, pts: [stamp({ x, y, w: 0.7 })] };
   state.strokes.push(state.current);
   $('hint').classList.add('hide');
 }
@@ -54,7 +68,7 @@ function penMove(x, y) {
   const now = performance.now(), speed = d / Math.max(0.008, (now - state.lastT) / 1000);
   state.lastT = now;
   const w = Math.min(1, Math.max(0.2, 1.15 - speed * 0.6));
-  s.pts.push({ x, y, w: last.w * 0.6 + w * 0.4 });
+  s.pts.push(stamp({ x, y, w: last.w * 0.6 + w * 0.4 }));
 }
 /** remove stroke parts within r px of (x,y) (normalised coords); strokes are split where erased */
 function eraseAt(x, y, r = 36) {
@@ -145,6 +159,22 @@ function togglePlay() {
   if (engine.playing) { engine.pause(); $('play').textContent = 'Play'; }
   else { engine.play(); $('play').textContent = 'Pause'; }
 }
+for (const [k, v] of Object.entries(INSTRUMENTS)) { const o = document.createElement('option'); o.value = k; o.textContent = v.name; $('inst').appendChild(o); }
+$('inst').value = engine.inst; $('harm').value = engine.harmony; $('ink').value = state.ink === Infinity ? 'hold' : String(state.ink);
+$('inst').onchange = e => { engine.setInstrument(e.target.value); save(); };
+$('harm').onchange = e => { engine.setHarmony(e.target.value); save(); };
+$('ink').onchange = e => { state.ink = e.target.value === 'hold' ? Infinity : +e.target.value; save(); };
+// struck instruments (piano, guitar) get their notes from here, once per 16th step
+engine.provider = pos => {
+  const out = [];
+  for (const s of state.strokes) {
+    if (s === state.current) continue;
+    const y = yAt(s, pos); if (y == null) continue;
+    out.push({ id: s.id, midi: engine.yToMidi(y), vel: 0.35 + 0.65 * (yAt.w || 1) });
+  }
+  if (state.pen.down) out.push({ id: 'pen', midi: engine.yToMidi(state.pen.y), vel: 0.8 });
+  return out;
+};
 $('quant').onchange = e => { engine.quantize = e.target.checked; save(); };
 $('bpm').oninput = e => { engine.setBpm(+e.target.value); $('bpmOut').textContent = e.target.value; save(); };
 $('undo').onclick = undo;
@@ -345,6 +375,7 @@ function yAt(stroke, pos) {
   const p = stroke.pts; let sum = 0, n = 0, wsum = 0;
   for (let i = 1; i < p.length; i++) {
     const a = p[i - 1], b = p[i];
+    if (!alive(a) || !alive(b)) continue;
     const lo = Math.min(a.x, b.x), hi = Math.max(a.x, b.x);
     if (pos < lo - 0.002 || pos > hi + 0.002) continue;
     const dx = b.x - a.x;
@@ -393,19 +424,43 @@ function drawGrid(genre) {
   }
 }
 
-function drawStroke(s, active) {
+/** ink: glows while waiting, flashes when the playhead hits it, then cools and fades over `state.ink` beats */
+function drawStroke(s, live) {
   const p = s.pts; if (p.length < 2) return;
   g.lineCap = g.lineJoin = 'round';
-  g.shadowBlur = active ? 22 : 0;
+  const life = Math.abs(state.ink), afterDraw = state.ink < 0;
   for (let i = 1; i < p.length; i++) {
     const a = p[i - 1], b = p[i];
-    g.lineWidth = (1.8 + 4.2 * ((a.w ?? 0.7) + (b.w ?? 0.7)) / 2) * (active ? 1.35 : 1);
-    const col = `hsl(${hueOf((a.y + b.y) / 2)},90%,${active ? 72 : 62}%)`;
-    g.strokeStyle = g.shadowColor = col;
-    g.globalAlpha = active ? 1 : 0.78;
+    if (!alive(a) && !alive(b)) continue;
+    const t = afterDraw ? clock - Math.max(a.born, b.born) : clock - Math.max(a.tc, b.tc);   // beats since drawn / since the playhead passed (negative = still waiting)
+    let alpha = 0.82, light = 62, flash = 0;
+    if ((afterDraw || !live) && t >= 0 && engine.playing) {
+      flash = Math.exp(-t * 5);
+      light = 62 + 28 * flash;
+      alpha = life === Infinity ? 0.82 : Math.max(0, 1 - t / life) * (0.35 + 0.65 * Math.max(flash, 1 - t / life));
+    }
+    if (alpha <= 0.01) continue;
+    const w = 1.8 + 4.2 * ((a.w ?? 0.7) + (b.w ?? 0.7)) / 2, hue = hueOf((a.y + b.y) / 2);
+    g.globalAlpha = alpha * (0.14 + 0.2 * flash);                    // soft halo (wet ink bleeding)
+    g.strokeStyle = `hsl(${hue},95%,${light}%)`; g.lineWidth = w * 3.2;
+    g.beginPath(); g.moveTo(a.x * W, a.y * H); g.lineTo(b.x * W, b.y * H); g.stroke();
+    g.globalAlpha = alpha;                                            // core line
+    g.strokeStyle = `hsl(${hue},${90 - 30 * (1 - alpha)}%,${light}%)`; g.lineWidth = w * (1 + 0.35 * flash);
     g.beginPath(); g.moveTo(a.x * W, a.y * H); g.lineTo(b.x * W, b.y * H); g.stroke();
   }
-  g.globalAlpha = 1; g.shadowBlur = 0;
+  g.globalAlpha = 1;
+}
+
+function drawParticles() {
+  g.globalCompositeOperation = 'lighter';
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const q = particles[i];
+    q.x += q.vx / 60; q.y += q.vy / 60; q.vy += 0.6; q.life -= 0.045;
+    if (q.life <= 0) { particles.splice(i, 1); continue; }
+    g.globalAlpha = q.life * 0.8; g.fillStyle = `hsl(${q.hue},100%,70%)`;
+    g.beginPath(); g.arc(q.x, q.y, 1.2 + 2.2 * q.life, 0, 6.3); g.fill();
+  }
+  g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
 }
 
 // ---------- save / load (localStorage) ----------
@@ -413,7 +468,7 @@ const KEY = 'scribble-synth-v1';
 function save() {
   try {
     const strokes = state.strokes.filter(s => s !== state.current).map(s => ({ id: s.id, pts: s.pts.map(p => [+p.x.toFixed(4), +p.y.toFixed(4), +(p.w ?? 0.7).toFixed(2)]) }));
-    localStorage.setItem(KEY, JSON.stringify({ genre: state.genreKey, bpm: engine.bpm, quant: engine.quantize, strokes }));
+    localStorage.setItem(KEY, JSON.stringify({ genre: state.genreKey, bpm: engine.bpm, quant: engine.quantize, ink: state.ink === Infinity ? 'hold' : state.ink, inst: engine.inst, harmony: engine.harmony, strokes }));
   } catch {}
 }
 let saved = null;
@@ -421,8 +476,12 @@ try { saved = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch {}
 if (saved) {
   if (GENRES[saved.genre]) state.genreKey = saved.genre;
   engine.quantize = saved.quant !== false; $('quant').checked = engine.quantize;
-  state.strokes = (saved.strokes || []).map(s => ({ id: state.nextId++, pts: s.pts.map(([x, y, w]) => ({ x, y, w })) }));
+  state.strokes = (saved.strokes || []).map(s => ({ id: state.nextId++, pts: s.pts.map(([x, y, w]) => stamp({ x, y, w })) }));
+  if (saved.ink != null) state.ink = saved.ink === 'hold' ? Infinity : saved.ink;
+  if (saved.inst && INSTRUMENTS[saved.inst]) engine.inst = saved.inst;
+  if (saved.harmony) engine.harmony = saved.harmony;
   if (state.strokes.length) $('hint').classList.add('hide');
+  $('inst').value = engine.inst; $('harm').value = engine.harmony; $('ink').value = state.ink === Infinity ? 'hold' : String(state.ink);
 }
 
 $('png').onclick = () => {
@@ -465,28 +524,43 @@ function recOnWrap() {
   }
 }
 
-let prevPos = 0, frameN = 0, meter = 0;
+let prevPos = 0, frameN = 0, frameC = 0, meter = 0;
 function frame() {
   requestAnimationFrame(frame);
   const genre = GENRES[state.genreKey];
   const pos = engine.ctx ? engine.position() : 0;
   if (engine.ctx && engine.ctx.state !== 'running' && (frameN++ % 60 === 0)) { engine.ctx.resume().catch(() => {}); syncBanner(); }
-  if (pos < prevPos - 0.5) recOnWrap();
+  if (pos < prevPos - 0.5) { recOnWrap(); loops++; }
   prevPos = pos;
+  clock = (loops + pos) * LOOP_BEATS;
+  if (state.ink !== Infinity && ++frameC % 20 === 0) state.strokes = state.strokes.filter(s => s === state.current || s.pts.some(alive));
 
-  // --- audio: set a voice for every stroke the playhead is currently over
-  if (engine.ctx && engine.playing) {
-    const keep = new Set();
-    for (const s of state.strokes) {
-      if (s === state.current) continue;               // the live stroke is heard through the pen voice
-      const y = yAt(s, pos);
-      s.active = y != null;
-      if (y != null) { engine.setVoice(s.id, engine.yToMidi(y), 0.35 + 0.65 * (yAt.w || 1)); keep.add(s.id); }
+  // --- audio + sparks: whatever the playhead is over right now
+  const ev = engine.instMode() === 'event', playing = engine.ctx && engine.playing, keep = new Set();
+  for (const s of state.strokes) {
+    s.active = false;
+    if (s === state.current) continue;               // the live stroke is heard through the pen voice
+    const y = yAt(s, pos);
+    if (y == null) continue;
+    s.active = true;
+    if (!playing) continue;
+    const vol = 0.35 + 0.65 * (yAt.w || 1), m = engine.yToMidi(y);
+    if (particles.length < 500 && Math.random() < 0.9) {
+      const hue = hueOf(y);
+      for (let k = 0; k < 2; k++) particles.push({ x: pos * W, y: y * H, vx: (Math.random() - 0.3) * 60, vy: (Math.random() - 0.5) * 80, life: 1, hue });
     }
-    if (state.pen.down) { engine.setVoice('pen', engine.yToMidi(state.pen.y), 0.8); keep.add('pen'); }
-    engine.releaseExcept(keep);
-  } else if (engine.ctx) {
-    if (state.pen.down) engine.setVoice('pen', engine.yToMidi(state.pen.y)); else engine.setVoice('pen', null);
+    if (!ev) {
+      engine.setVoice(s.id, m, vol); keep.add(s.id);
+      engine.harmonize(m).forEach((h, i) => { engine.setVoice(s.id + ':h' + i, h, vol * 0.6); keep.add(s.id + ':h' + i); });
+    }
+  }
+  if (engine.ctx) {
+    if (state.pen.down && !ev) {
+      const m = engine.yToMidi(state.pen.y);
+      engine.setVoice('pen', m, 0.8); keep.add('pen');
+      engine.harmonize(m).forEach((h, i) => { engine.setVoice('pen:h' + i, h, 0.5); keep.add('pen:h' + i); });
+    }
+    if (playing || !state.pen.down) engine.releaseExcept(keep);
   }
 
   // --- visuals
@@ -495,7 +569,8 @@ function frame() {
   bg.addColorStop(0, `hsl(${genre.hue},35%,9%)`); bg.addColorStop(1, '#090b0f');
   g.fillStyle = bg; g.fillRect(0, 0, W, H);
   drawGrid(genre);
-  for (const s of state.strokes) drawStroke(s, s.active && engine.playing);
+  for (const s of state.strokes) drawStroke(s, s === state.current);
+  drawParticles();
 
   // playhead
   const px = pos * W;
@@ -508,7 +583,7 @@ function frame() {
   // output meter (top right): if this moves but you hear nothing, the device/browser is muting audio
   if (engine.ctx) {
     meter = Math.max(engine.level(), meter * 0.9);
-    const mx = W - 24, mh = 70, my = H - 96;
+    const mx = W - 24, mh = 70, my = H - 150;
     g.fillStyle = 'rgba(255,255,255,.08)'; g.fillRect(mx, my - mh, 6, mh);
     g.fillStyle = engine.ctx.state === 'running' ? (meter > 0.9 ? '#ff5c8a' : '#7cf4c8') : '#ffb020';
     g.fillRect(mx, my - Math.min(1, meter * 1.4) * mh, 6, Math.min(1, meter * 1.4) * mh);
